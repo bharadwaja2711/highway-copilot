@@ -4,11 +4,70 @@ import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './App.css'
 
+
+type GeocodingResult = {
+    lat: string
+    lon: string
+    display_name: string
+}
+
+async function geocodeLocation(place: string): Promise<GeocodingResult[]> {
+    const params = new URLSearchParams({
+        q: place,
+        format: 'jsonv2',
+        limit: '5',
+    })
+
+    const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?${params}`,
+    )
+
+    if (!response.ok) {
+        throw new Error('Location search failed. Please try again.')
+    }
+
+    return response.json()
+}
+
+async function suggestLocations(place: string): Promise<GeocodingResult[]> {
+    const params = new URLSearchParams({
+        q: place,
+        limit: '5',
+    })
+
+    const response = await fetch(
+        `https://photon.komoot.io/api/?${params}`,
+    )
+
+    if (!response.ok) {
+        throw new Error('Location suggestions failed.')
+    }
+
+    const data = await response.json()
+
+    return data.features.map((feature: {
+        properties: { name?: string; city?: string; state?: string; country?: string }
+        geometry: { coordinates: [number, number] }
+    }) => ({
+        lat: String(feature.geometry.coordinates[1]),
+        lon: String(feature.geometry.coordinates[0]),
+        display_name: [
+            feature.properties.name,
+            feature.properties.city,
+            feature.properties.state,
+            feature.properties.country,
+        ].filter(Boolean).filter((value, index, values) => values.indexOf(value) === index).join(', '),
+    }))
+}
+
+
 function App() {
     const mapContainer = useRef<HTMLDivElement>(null)
     const [origin, setOrigin] = useState('')
     const [destination, setDestination] = useState('')
     const [message, setMessage] = useState('')
+    const [originSuggestions, setOriginSuggestions] = useState<GeocodingResult[]>([])
+    const [destinationSuggestions, setDestinationSuggestions] = useState<GeocodingResult[]>([])
 
     useEffect(() => {
         if (!mapContainer.current) return
@@ -35,7 +94,7 @@ function App() {
                     },
                 ],
             },
-            attributionControl: true,
+            attributionControl: {},
         })
 
         map.addControl(
@@ -46,7 +105,8 @@ function App() {
         return () => map.remove()
     }, [])
 
-    function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+
+    async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
         event.preventDefault()
 
         if (!origin.trim() || !destination.trim()) {
@@ -54,10 +114,37 @@ function App() {
             return
         }
 
-        setMessage(
-            'Locations captured. Next, we will connect the routing engine.',
-        )
+        setMessage('Searching for your starting location...')
+
+        try {
+
+            const originResults = await geocodeLocation(origin.trim())
+
+            if (originResults.length === 0) {
+                setMessage('Starting location not found. Try a more specific place.')
+                return
+            }
+
+            setMessage('Starting location found. Searching for destination...')
+
+            const destinationResults = await geocodeLocation(destination.trim())
+
+            if (destinationResults.length === 0) {
+                setMessage('Destination not found. Try a more specific place.')
+                return
+            }
+
+            const start = originResults[0]
+            const end = destinationResults[0]
+
+            setMessage(
+                `Both locations found! Start: ${start.lat}, ${start.lon} | Destination: ${end.lat}, ${end.lon}`,
+            )
+        } catch {
+            setMessage('Location search failed. Check your internet connection and try again.')
+        }
     }
+
 
     return (
         <main className="workspace">
@@ -92,6 +179,20 @@ function App() {
 
                     <form className="route-form" onSubmit={handleSubmit}>
                         <div className="location-fields">
+                            <button
+                                type="button"
+                                className="swap-button"
+                                aria-label="Swap starting point and destination"
+                                title="Swap locations"
+                                onClick={() => {
+                                    setOrigin(destination)
+                                    setDestination(origin)
+                                    setOriginSuggestions([])
+                                    setDestinationSuggestions([])
+                                }}
+                            >
+                                ⇅
+                            </button>
                             <div className="location-line">
                                 <span className="location-dot origin-dot" />
                                 <label htmlFor="origin">FROM</label>
@@ -99,24 +200,102 @@ function App() {
                             <input
                                 id="origin"
                                 value={origin}
-                                onChange={(event) => setOrigin(event.target.value)}
+                                onChange={async (event) => {
+                                    const value = event.target.value
+                                    setOrigin(value)
+                                    setOriginSuggestions([])
+
+                                    if (value.trim().length < 3) return
+
+                                    try {
+                                        const results = await suggestLocations(value.trim())
+                                        setOriginSuggestions(results)
+                                    } catch {
+                                        setOriginSuggestions([])
+                                    }
+                                }}
                                 placeholder="Starting location"
                                 autoComplete="off"
                             />
 
+                            {originSuggestions.length > 0 && (
+                                <div className="suggestions-list">
+                                    {originSuggestions.map((place, index) => (
+                                        <button
+                                            key={`${place.lat}-${place.lon}-${index}`}
+                                            type="button"
+                                            className="suggestion-item"
+                                            onClick={() => {
+                                                setOrigin(place.display_name)
+                                                setOriginSuggestions([])
+                                            }}
+                                        >
+                                            {place.display_name}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
                             <div className="connector" />
+
+                            <button
+                                type="button"
+                                className="swap-button"
+                                aria-label="Swap starting point and destination"
+                                title="Swap locations"
+                                onClick={() => {
+                                    setOrigin(destination)
+                                    setDestination(origin)
+                                    setOriginSuggestions([])
+                                    setDestinationSuggestions([])
+                                }}
+                            >
+                                ⇅
+                            </button>
 
                             <div className="location-line">
                                 <span className="location-dot destination-dot" />
                                 <label htmlFor="destination">TO</label>
                             </div>
+
                             <input
                                 id="destination"
                                 value={destination}
-                                onChange={(event) => setDestination(event.target.value)}
+                                onChange={async (event) => {
+                                    const value = event.target.value
+                                    setDestination(value)
+                                    setDestinationSuggestions([])
+
+                                    if (value.trim().length < 3) return
+
+                                    try {
+                                        const results = await suggestLocations(value.trim())
+                                        setDestinationSuggestions(results)
+                                    } catch {
+                                        setDestinationSuggestions([])
+                                    }
+                                }}
                                 placeholder="Where are you headed?"
                                 autoComplete="off"
                             />
+
+                            {destinationSuggestions.length > 0 && (
+                                <div className="suggestions-list">
+                                    {destinationSuggestions.map((place, index) => (
+                                        <button
+                                            key={`${place.lat}-${place.lon}-${index}`}
+                                            type="button"
+                                            className="suggestion-item"
+                                            onClick={() => {
+                                                setDestination(place.display_name)
+                                                setDestinationSuggestions([])
+                                            }}
+                                        >
+                                            {place.display_name}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
                         <button className="plan-button" type="submit">
