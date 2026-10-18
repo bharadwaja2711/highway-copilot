@@ -1,9 +1,10 @@
+
 import { useEffect, useRef, useState } from 'react'
 import * as maplibregl from 'maplibre-gl'
-import 'maplibre-gl/dist/maplibre-gl.css'
-import './App.css'
 import { setWorkerUrl } from 'maplibre-gl'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
+import 'maplibre-gl/dist/maplibre-gl.css'
+import './App.css'
 
 setWorkerUrl(workerUrl)
 
@@ -48,7 +49,12 @@ async function suggestLocations(place: string): Promise<GeocodingResult[]> {
     const data = await response.json()
 
     return data.features.map((feature: {
-        properties: { name?: string; city?: string; state?: string; country?: string }
+        properties: {
+            name?: string
+            city?: string
+            state?: string
+            country?: string
+        }
         geometry: { coordinates: [number, number] }
     }) => ({
         lat: String(feature.geometry.coordinates[1]),
@@ -58,7 +64,10 @@ async function suggestLocations(place: string): Promise<GeocodingResult[]> {
             feature.properties.city,
             feature.properties.state,
             feature.properties.country,
-        ].filter(Boolean).filter((value, index, values) => values.indexOf(value) === index).join(', '),
+        ]
+            .filter(Boolean)
+            .filter((value, index, values) => values.indexOf(value) === index)
+            .join(', '),
     }))
 }
 
@@ -97,13 +106,23 @@ async function getDrivingRoute(
 function App() {
     const mapContainer = useRef<HTMLDivElement>(null)
     const mapRef = useRef<maplibregl.Map | null>(null)
+
     const [origin, setOrigin] = useState('')
     const [destination, setDestination] = useState('')
     const [message, setMessage] = useState('')
+
     const [originSuggestions, setOriginSuggestions] = useState<GeocodingResult[]>([])
     const [destinationSuggestions, setDestinationSuggestions] = useState<GeocodingResult[]>([])
+
     const [routeDistance, setRouteDistance] = useState<number | null>(null)
     const [routeDuration, setRouteDuration] = useState<number | null>(null)
+
+    const [showRoutePreferences, setShowRoutePreferences] = useState(false)
+    const [routePreference, setRoutePreference] = useState('recommended')
+
+    const [viaPlaceInput, setViaPlaceInput] = useState('')
+    const [viaPlaceSuggestions, setViaPlaceSuggestions] = useState<GeocodingResult[]>([])
+    const [viaPlaces, setViaPlaces] = useState<string[]>([])
 
     useEffect(() => {
         if (!mapContainer.current) return
@@ -140,9 +159,11 @@ function App() {
             'top-right',
         )
 
-        return () => map.remove()
+        return () => {
+            map.remove()
+            mapRef.current = null
+        }
     }, [])
-
 
     async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
         event.preventDefault()
@@ -155,7 +176,6 @@ function App() {
         setMessage('Searching for your starting location...')
 
         try {
-
             const originResults = await geocodeLocation(origin.trim())
 
             if (originResults.length === 0) {
@@ -178,6 +198,7 @@ function App() {
             setMessage('Locations found. Calculating driving route...')
 
             const route = await getDrivingRoute(start, end)
+
             setRouteDistance(route.distance / 1000)
             setRouteDuration(route.duration / 60)
 
@@ -234,28 +255,46 @@ function App() {
             setMessage(
                 `Route found! Distance: ${(route.distance / 1000).toFixed(1)} km · Estimated driving time: ${Math.round(route.duration / 60)} min`,
             )
-
         } catch {
-            setMessage('Location search failed. Check your internet connection and try again.')
+            setMessage(
+                'Location search failed. Check your internet connection and try again.',
+            )
         }
     }
 
+    async function handleViaPlaceChange(value: string) {
+        setViaPlaceInput(value)
+        setViaPlaceSuggestions([])
+
+        if (value.trim().length < 3) return
+
+        try {
+            const results = await suggestLocations(value.trim())
+            setViaPlaceSuggestions(results)
+        } catch {
+            setViaPlaceSuggestions([])
+        }
+    }
+
+    function addViaPlace() {
+        const place = viaPlaceInput.trim()
+
+        if (!place || viaPlaces.includes(place)) return
+
+        setViaPlaces([...viaPlaces, place])
+        setViaPlaceInput('')
+        setViaPlaceSuggestions([])
+    }
 
     return (
         <main className="workspace">
             <header className="topbar">
-
                 <a className="brand" href="/" aria-label="Highway Copilot home">
-                    <img
-                        className="brand-icon"
-                        src="/favicon.svg"
-                        alt=""
-                    />
+                    <img className="brand-icon" src="/favicon.svg" alt="" />
                     <span className="brand-name">
-    Highway<span>Copilot</span>
-  </span>
+                        Highway<span>Copilot</span>
+                    </span>
                 </a>
-
 
                 <div className="topbar-right">
                     <span className="open-indicator" />
@@ -288,10 +327,12 @@ function App() {
                             >
                                 ⇅
                             </button>
+
                             <div className="location-line">
                                 <span className="location-dot origin-dot" />
                                 <label htmlFor="origin">FROM</label>
                             </div>
+
                             <input
                                 id="origin"
                                 value={origin}
@@ -402,19 +443,221 @@ function App() {
                         )}
 
                         {routeDistance !== null && routeDuration !== null && (
-                            <div className="route-summary">
-                                <div className="summary-card">
-                                    <span className="summary-label">DISTANCE</span>
-                                    <strong>{routeDistance.toFixed(1)} km</strong>
+                            <>
+                                <div className="route-summary-header">
+                                    <span className="route-summary-title">YOUR ROUTE</span>
+                                    <button
+                                        type="button"
+                                        className="route-preferences-button"
+                                        onClick={() => setShowRoutePreferences(!showRoutePreferences)}
+                                        aria-label="Route preferences"
+                                    >
+                                        ⚙ Preferences
+                                    </button>
                                 </div>
 
-                                <div className="summary-card">
-                                    <span className="summary-label">DRIVING TIME</span>
-                                    <strong>
-                                        {Math.floor(routeDuration / 60)}h {Math.round(routeDuration % 60)}m
-                                    </strong>
+                                {showRoutePreferences && (
+                                    <div className="route-preferences-panel">
+                                        <p className="route-preferences-heading">Route priorities</p>
+
+                                        <label className="route-preference-option">
+                                            <input
+                                                type="radio"
+                                                name="routePreference"
+                                                value="recommended"
+                                                checked={routePreference === 'recommended'}
+                                                onChange={() => setRoutePreference('recommended')}
+                                            />
+                                            <span>
+                                                <strong>Recommended (Fastest)</strong>
+                                                <small>Use the default route</small>
+                                            </span>
+                                        </label>
+
+                                        <label className="route-preference-option">
+                                            <input
+                                                type="radio"
+                                                name="routePreference"
+                                                value="highways"
+                                                checked={routePreference === 'highways'}
+                                                onChange={() => setRoutePreference('highways')}
+                                            />
+                                            <span>
+                                                <strong>Prefer Highways</strong>
+                                                <small>Favor major roads where possible</small>
+                                            </span>
+                                        </label>
+
+                                        <label className="route-preference-option">
+                                            <input
+                                                type="radio"
+                                                name="routePreference"
+                                                value="scenic"
+                                                checked={routePreference === 'scenic'}
+                                                onChange={() => setRoutePreference('scenic')}
+                                            />
+                                            <span>
+                                                <strong>Scenic route</strong>
+                                                <small>Favor interesting landscapes where data allows</small>
+                                            </span>
+                                        </label>
+
+                                        <label className="route-preference-option">
+                                            <input
+                                                type="radio"
+                                                name="routePreference"
+                                                value="via"
+                                                checked={routePreference === 'via'}
+                                                onChange={() => setRoutePreference('via')}
+                                            />
+                                            <span>
+                                                <strong>Via specific places</strong>
+                                                <small>Choose cities and towns your route should pass through</small>
+                                            </span>
+                                        </label>
+
+                                        {routePreference === 'via' && (
+                                            <div className="via-places-section">
+                                                <label htmlFor="via-place-input">Places to pass through</label>
+
+                                                <p className="via-places-help">
+                                                    Add cities or towns in the order you want to visit them.
+                                                </p>
+
+                                                <div className="via-place-input-row">
+                                                    <input
+                                                        id="via-place-input"
+                                                        type="text"
+                                                        value={viaPlaceInput}
+                                                        onChange={(event) => {
+                                                            void handleViaPlaceChange(event.target.value)
+                                                        }}
+                                                        onKeyDown={(event) => {
+                                                            if (event.key === 'Enter') {
+                                                                event.preventDefault()
+                                                                if (viaPlaceSuggestions.length > 0) {
+                                                                    const first = viaPlaceSuggestions[0]
+                                                                    setViaPlaceInput(first.display_name)
+                                                                    setViaPlaceSuggestions([])
+                                                                } else {
+                                                                    addViaPlace()
+                                                                }
+                                                            }
+                                                        }}
+                                                        placeholder="Search for a city or town"
+                                                        autoComplete="off"
+                                                    />
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={addViaPlace}
+                                                        disabled={
+                                                            !viaPlaceInput.trim() ||
+                                                            viaPlaces.includes(viaPlaceInput.trim())
+                                                        }
+                                                    >
+                                                        Add
+                                                    </button>
+                                                </div>
+
+                                                {viaPlaceSuggestions.length > 0 && (
+                                                    <div className="suggestions-list">
+                                                        {viaPlaceSuggestions.map((place, index) => (
+                                                            <button
+                                                                key={`${place.lat}-${place.lon}-${index}`}
+                                                                type="button"
+                                                                className="suggestion-item"
+                                                                onClick={() => {
+                                                                    setViaPlaceInput(place.display_name)
+                                                                    setViaPlaceSuggestions([])
+                                                                }}
+                                                            >
+                                                                {place.display_name}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                {viaPlaces.length > 0 && (
+                                                    <div className="via-places-list">
+                                                        <p className="via-places-list-heading">Your route, in order</p>
+
+                                                        {viaPlaces.map((place, index) => (
+                                                            <div className="via-place-item" key={`${place}-${index}`}>
+                                                                <span className="via-place-number">{index + 1}</span>
+                                                                <span className="via-place-name">{place}</span>
+
+                                                                <div className="via-place-order-controls">
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={index === 0}
+                                                                        aria-label={`Move ${place} up`}
+                                                                        onClick={() => {
+                                                                            const updated = [...viaPlaces]
+                                                                            ;[updated[index - 1], updated[index]] = [
+                                                                                updated[index],
+                                                                                updated[index - 1],
+                                                                            ]
+                                                                            setViaPlaces(updated)
+                                                                        }}
+                                                                    >
+                                                                        ↑
+                                                                    </button>
+
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={index === viaPlaces.length - 1}
+                                                                        aria-label={`Move ${place} down`}
+                                                                        onClick={() => {
+                                                                            const updated = [...viaPlaces]
+                                                                            ;[updated[index], updated[index + 1]] = [
+                                                                                updated[index + 1],
+                                                                                updated[index],
+                                                                            ]
+                                                                            setViaPlaces(updated)
+                                                                        }}
+                                                                    >
+                                                                        ↓
+                                                                    </button>
+                                                                </div>
+
+                                                                <button
+                                                                    type="button"
+                                                                    className="via-place-remove"
+                                                                    onClick={() => {
+                                                                        setViaPlaces(viaPlaces.filter((_, i) => i !== index))
+                                                                    }}
+                                                                    aria-label={`Remove ${place}`}
+                                                                >
+                                                                    ×
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        <p className="route-preferences-note">
+                                            Preferences are selectable, but do not change the calculated route yet.
+                                        </p>
+                                    </div>
+                                )}
+
+                                <div className="route-summary">
+                                    <div className="summary-card">
+                                        <span className="summary-label">DISTANCE</span>
+                                        <strong>{routeDistance.toFixed(1)} km</strong>
+                                    </div>
+
+                                    <div className="summary-card">
+                                        <span className="summary-label">DRIVING TIME</span>
+                                        <strong>
+                                            {Math.floor(routeDuration / 60)}h {Math.round(routeDuration % 60)}m
+                                        </strong>
+                                    </div>
                                 </div>
-                            </div>
+                            </>
                         )}
                     </form>
 
