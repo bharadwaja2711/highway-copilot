@@ -1,9 +1,11 @@
-
 import { useEffect, useRef, useState } from 'react'
 import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './App.css'
+import { setWorkerUrl } from 'maplibre-gl'
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 
+setWorkerUrl(workerUrl)
 
 type GeocodingResult = {
     lat: string
@@ -60,9 +62,41 @@ async function suggestLocations(place: string): Promise<GeocodingResult[]> {
     }))
 }
 
+type RouteResult = {
+    distance: number
+    duration: number
+    geometry: {
+        coordinates: [number, number][]
+    }
+}
+
+async function getDrivingRoute(
+    start: GeocodingResult,
+    end: GeocodingResult,
+): Promise<RouteResult> {
+    const url =
+        `https://router.project-osrm.org/route/v1/driving/` +
+        `${start.lon},${start.lat};${end.lon},${end.lat}` +
+        `?overview=full&geometries=geojson`
+
+    const response = await fetch(url)
+
+    if (!response.ok) {
+        throw new Error('Could not calculate the road route.')
+    }
+
+    const data = await response.json()
+
+    if (data.code !== 'Ok' || !data.routes?.length) {
+        throw new Error('No driving route found for these locations.')
+    }
+
+    return data.routes[0]
+}
 
 function App() {
     const mapContainer = useRef<HTMLDivElement>(null)
+    const mapRef = useRef<maplibregl.Map | null>(null)
     const [origin, setOrigin] = useState('')
     const [destination, setDestination] = useState('')
     const [message, setMessage] = useState('')
@@ -96,6 +130,8 @@ function App() {
             },
             attributionControl: {},
         })
+
+        mapRef.current = map
 
         map.addControl(
             new maplibregl.NavigationControl({ showCompass: true }),
@@ -137,9 +173,64 @@ function App() {
             const start = originResults[0]
             const end = destinationResults[0]
 
+            setMessage('Locations found. Calculating driving route...')
+
+            const route = await getDrivingRoute(start, end)
+
+            const map = mapRef.current
+
+            if (map) {
+                const drawRoute = () => {
+                    const routeData = {
+                        type: 'Feature' as const,
+                        properties: {},
+                        geometry: {
+                            type: 'LineString' as const,
+                            coordinates: route.geometry.coordinates,
+                        },
+                    }
+
+                    if (map.getSource('driving-route')) {
+                        ;(map.getSource('driving-route') as maplibregl.GeoJSONSource)
+                            .setData(routeData)
+                    } else {
+                        map.addSource('driving-route', {
+                            type: 'geojson',
+                            data: routeData,
+                        })
+
+                        map.addLayer({
+                            id: 'driving-route-line',
+                            type: 'line',
+                            source: 'driving-route',
+                            paint: {
+                                'line-color': '#2563eb',
+                                'line-width': 5,
+                                'line-opacity': 0.9,
+                            },
+                        })
+                    }
+
+                    const bounds = new maplibregl.LngLatBounds()
+
+                    route.geometry.coordinates.forEach((coordinate) => {
+                        bounds.extend(coordinate)
+                    })
+
+                    map.fitBounds(bounds, { padding: 60 })
+                }
+
+                if (map.loaded()) {
+                    drawRoute()
+                } else {
+                    map.once('load', drawRoute)
+                }
+            }
+
             setMessage(
-                `Both locations found! Start: ${start.lat}, ${start.lon} | Destination: ${end.lat}, ${end.lon}`,
+                `Route found! Distance: ${(route.distance / 1000).toFixed(1)} km · Estimated driving time: ${Math.round(route.duration / 60)} min`,
             )
+
         } catch {
             setMessage('Location search failed. Check your internet connection and try again.')
         }
