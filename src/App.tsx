@@ -102,6 +102,8 @@ function App() {
     const [message, setMessage] = useState('')
     const [originSuggestions, setOriginSuggestions] = useState<GeocodingResult[]>([])
     const [destinationSuggestions, setDestinationSuggestions] = useState<GeocodingResult[]>([])
+    const [routeDistance, setRouteDistance] = useState<number | null>(null)
+    const [routeDuration, setRouteDuration] = useState<number | null>(null)
 
     useEffect(() => {
         if (!mapContainer.current) return
@@ -176,6 +178,8 @@ function App() {
             setMessage('Locations found. Calculating driving route...')
 
             const route = await getDrivingRoute(start, end)
+            setRouteDistance(route.distance / 1000)
+            setRouteDuration(route.duration / 60)
 
             const map = mapRef.current
 
@@ -393,7 +397,25 @@ function App() {
                             Plan journey <span>↗</span>
                         </button>
 
-                        {message && <p className="form-message" role="status">{message}</p>}
+                        {message && !message.startsWith('Route found!') && (
+                            <p className="form-message" role="status">{message}</p>
+                        )}
+
+                        {routeDistance !== null && routeDuration !== null && (
+                            <div className="route-summary">
+                                <div className="summary-card">
+                                    <span className="summary-label">DISTANCE</span>
+                                    <strong>{routeDistance.toFixed(1)} km</strong>
+                                </div>
+
+                                <div className="summary-card">
+                                    <span className="summary-label">DRIVING TIME</span>
+                                    <strong>
+                                        {Math.floor(routeDuration / 60)}h {Math.round(routeDuration % 60)}m
+                                    </strong>
+                                </div>
+                            </div>
+                        )}
                     </form>
 
                     <div className="sidebar-divider" />
