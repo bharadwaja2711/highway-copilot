@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useState } from 'react'
 import * as maplibregl from 'maplibre-gl'
 import { setWorkerUrl } from 'maplibre-gl'
@@ -79,28 +78,107 @@ type RouteResult = {
     }
 }
 
+function decodePolyline6(encoded: string): [number, number][] {
+    const coordinates: [number, number][] = []
+    let index = 0
+    let latitude = 0
+    let longitude = 0
+
+    while (index < encoded.length) {
+        let result = 0
+        let shift = 0
+        let byte: number
+
+        do {
+            byte = encoded.charCodeAt(index++) - 63
+            result |= (byte & 0x1f) << shift
+            shift += 5
+        } while (byte >= 0x20)
+
+        const latitudeChange = result & 1 ? ~(result >> 1) : result >> 1
+        latitude += latitudeChange
+
+        result = 0
+        shift = 0
+
+        do {
+            byte = encoded.charCodeAt(index++) - 63
+            result |= (byte & 0x1f) << shift
+            shift += 5
+        } while (byte >= 0x20)
+
+        const longitudeChange = result & 1 ? ~(result >> 1) : result >> 1
+        longitude += longitudeChange
+
+        coordinates.push([longitude / 1_000_000, latitude / 1_000_000])
+    }
+
+    return coordinates
+}
+
 async function getDrivingRoute(
     start: GeocodingResult,
     end: GeocodingResult,
+    viaPlaces: GeocodingResult[] = [],
+    preference = 'recommended',
 ): Promise<RouteResult> {
-    const url =
-        `https://router.project-osrm.org/route/v1/driving/` +
-        `${start.lon},${start.lat};${end.lon},${end.lat}` +
-        `?overview=full&geometries=geojson`
+    const locations = [start, ...viaPlaces, end].map((place) => ({
+        lat: Number(place.lat),
+        lon: Number(place.lon),
+    }))
 
-    const response = await fetch(url)
+    // Valhalla's auto costing options influence which roads the router prefers.
+    // Scenic is an approximation that favors avoiding major highways and tolls;
+    // it cannot guarantee viewpoints or scenic landscapes.
+    const autoOptions: Record<string, number> = {}
 
-    if (!response.ok) {
-        throw new Error('Could not calculate the road route.')
+    if (preference === 'highways') {
+        autoOptions.use_highways = 1.0
+        autoOptions.use_tolls = 0.8
+    } else if (preference === 'scenic') {
+        autoOptions.use_highways = 0.25
+        autoOptions.use_tolls = 0.2
+        autoOptions.use_living_streets = 0.2
     }
+
+    const requestBody = {
+        locations,
+        costing: 'auto',
+        costing_options: Object.keys(autoOptions).length
+            ? { auto: autoOptions }
+            : undefined,
+        units: 'kilometers',
+        shape_format: 'polyline6',
+    }
+
+    const response = await fetch('https://valhalla1.openstreetmap.de/route', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Client-Id': 'highway-copilot-community-app',
+        },
+        body: JSON.stringify(requestBody),
+    })
 
     const data = await response.json()
 
-    if (data.code !== 'Ok' || !data.routes?.length) {
-        throw new Error('No driving route found for these locations.')
+    if (!response.ok || data.error || !data.trip?.legs?.length) {
+        throw new Error(
+            data.error || data.status_message || 'Could not calculate a driving route. Please try again.',
+        )
     }
 
-    return data.routes[0]
+    const coordinates = data.trip.legs.flatMap((leg: { shape: string }, index: number) => {
+        const legCoordinates = decodePolyline6(leg.shape)
+        // Remove duplicate join points between consecutive legs.
+        return index === 0 ? legCoordinates : legCoordinates.slice(1)
+    })
+
+    return {
+        distance: data.trip.summary.length * 1000,
+        duration: data.trip.summary.time,
+        geometry: { coordinates },
+    }
 }
 
 function App() {
@@ -122,7 +200,8 @@ function App() {
 
     const [viaPlaceInput, setViaPlaceInput] = useState('')
     const [viaPlaceSuggestions, setViaPlaceSuggestions] = useState<GeocodingResult[]>([])
-    const [viaPlaces, setViaPlaces] = useState<string[]>([])
+    const [selectedViaPlace, setSelectedViaPlace] = useState<GeocodingResult | null>(null)
+    const [viaPlaces, setViaPlaces] = useState<GeocodingResult[]>([])
 
     useEffect(() => {
         if (!mapContainer.current) return
@@ -195,9 +274,19 @@ function App() {
             const start = originResults[0]
             const end = destinationResults[0]
 
+            if (routePreference === 'via' && viaPlaces.length === 0) {
+                setMessage('Add at least one place for your via route.')
+                return
+            }
+
             setMessage('Locations found. Calculating driving route...')
 
-            const route = await getDrivingRoute(start, end)
+            const route = await getDrivingRoute(
+                start,
+                end,
+                routePreference === 'via' ? viaPlaces : [],
+                routePreference,
+            )
 
             setRouteDistance(route.distance / 1000)
             setRouteDuration(route.duration / 60)
@@ -255,15 +344,18 @@ function App() {
             setMessage(
                 `Route found! Distance: ${(route.distance / 1000).toFixed(1)} km · Estimated driving time: ${Math.round(route.duration / 60)} min`,
             )
-        } catch {
+        } catch (error) {
             setMessage(
-                'Location search failed. Check your internet connection and try again.',
+                error instanceof Error
+                    ? error.message
+                    : 'Something went wrong. Check your internet connection and try again.',
             )
         }
     }
 
     async function handleViaPlaceChange(value: string) {
         setViaPlaceInput(value)
+        setSelectedViaPlace(null)
         setViaPlaceSuggestions([])
 
         if (value.trim().length < 3) return
@@ -277,13 +369,20 @@ function App() {
     }
 
     function addViaPlace() {
-        const place = viaPlaceInput.trim()
+        if (!selectedViaPlace) return
 
-        if (!place || viaPlaces.includes(place)) return
+        const alreadyAdded = viaPlaces.some(
+            (place) =>
+                place.lat === selectedViaPlace.lat &&
+                place.lon === selectedViaPlace.lon,
+        )
 
-        setViaPlaces([...viaPlaces, place])
+        if (alreadyAdded) return
+
+        setViaPlaces([...viaPlaces, selectedViaPlace])
         setViaPlaceInput('')
         setViaPlaceSuggestions([])
+        setSelectedViaPlace(null)
     }
 
     return (
@@ -538,6 +637,7 @@ function App() {
                                                                 if (viaPlaceSuggestions.length > 0) {
                                                                     const first = viaPlaceSuggestions[0]
                                                                     setViaPlaceInput(first.display_name)
+                                                                    setSelectedViaPlace(first)
                                                                     setViaPlaceSuggestions([])
                                                                 } else {
                                                                     addViaPlace()
@@ -551,10 +651,7 @@ function App() {
                                                     <button
                                                         type="button"
                                                         onClick={addViaPlace}
-                                                        disabled={
-                                                            !viaPlaceInput.trim() ||
-                                                            viaPlaces.includes(viaPlaceInput.trim())
-                                                        }
+                                                        disabled={!selectedViaPlace}
                                                     >
                                                         Add
                                                     </button>
@@ -569,6 +666,7 @@ function App() {
                                                                 className="suggestion-item"
                                                                 onClick={() => {
                                                                     setViaPlaceInput(place.display_name)
+                                                                    setSelectedViaPlace(place)
                                                                     setViaPlaceSuggestions([])
                                                                 }}
                                                             >
@@ -583,15 +681,15 @@ function App() {
                                                         <p className="via-places-list-heading">Your route, in order</p>
 
                                                         {viaPlaces.map((place, index) => (
-                                                            <div className="via-place-item" key={`${place}-${index}`}>
+                                                            <div className="via-place-item" key={`${place.lat}-${place.lon}`}>
                                                                 <span className="via-place-number">{index + 1}</span>
-                                                                <span className="via-place-name">{place}</span>
+                                                                <span className="via-place-name">{place.display_name}</span>
 
                                                                 <div className="via-place-order-controls">
                                                                     <button
                                                                         type="button"
                                                                         disabled={index === 0}
-                                                                        aria-label={`Move ${place} up`}
+                                                                        aria-label={`Move ${place.display_name} up`}
                                                                         onClick={() => {
                                                                             const updated = [...viaPlaces]
                                                                             ;[updated[index - 1], updated[index]] = [
@@ -607,7 +705,7 @@ function App() {
                                                                     <button
                                                                         type="button"
                                                                         disabled={index === viaPlaces.length - 1}
-                                                                        aria-label={`Move ${place} down`}
+                                                                        aria-label={`Move ${place.display_name} down`}
                                                                         onClick={() => {
                                                                             const updated = [...viaPlaces]
                                                                             ;[updated[index], updated[index + 1]] = [
@@ -627,7 +725,7 @@ function App() {
                                                                     onClick={() => {
                                                                         setViaPlaces(viaPlaces.filter((_, i) => i !== index))
                                                                     }}
-                                                                    aria-label={`Remove ${place}`}
+                                                                    aria-label={`Remove ${place.display_name}`}
                                                                 >
                                                                     ×
                                                                 </button>
@@ -639,7 +737,7 @@ function App() {
                                         )}
 
                                         <p className="route-preferences-note">
-                                            Preferences are selectable, but do not change the calculated route yet.
+                                            Highway mode favors major roads. Scenic mode tries to avoid major highways and tolls; it cannot guarantee scenic views.
                                         </p>
                                     </div>
                                 )}
@@ -695,3 +793,4 @@ function App() {
 }
 
 export default App
+
