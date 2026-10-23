@@ -22,7 +22,10 @@ export async function geocodeLocation(place: string): Promise<GeocodingResult[]>
     return response.json()
 }
 
-export async function suggestLocations(place: string): Promise<GeocodingResult[]> {
+export async function suggestLocations(
+    place: string,
+    signal?: AbortSignal,
+): Promise<GeocodingResult[]> {
     const params = new URLSearchParams({
         q: place,
         limit: '5',
@@ -30,6 +33,7 @@ export async function suggestLocations(place: string): Promise<GeocodingResult[]
 
     const response = await fetch(
         `https://photon.komoot.io/api/?${params}`,
+        { signal },
     )
 
     if (!response.ok) {

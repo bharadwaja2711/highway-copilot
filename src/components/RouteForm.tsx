@@ -1,46 +1,16 @@
-import type { Dispatch, FormEvent, SetStateAction } from 'react'
-import { suggestLocations, type GeocodingResult } from '../services/geocoding'
+import type { useRoutePlanner } from '../hooks/useRoutePlanner'
+import LocationInput from './LocationInput'
 
 type RouteFormProps = {
-    origin: string
-    setOrigin: Dispatch<SetStateAction<string>>
-    destination: string
-    setDestination: Dispatch<SetStateAction<string>>
-    message: string
-    originSuggestions: GeocodingResult[]
-    setOriginSuggestions: Dispatch<SetStateAction<GeocodingResult[]>>
-    destinationSuggestions: GeocodingResult[]
-    setDestinationSuggestions: Dispatch<SetStateAction<GeocodingResult[]>>
-    handleSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>
-    routeDistance: number | null
-    routeDuration: number | null
-    showRoutePreferences: boolean
-    setShowRoutePreferences: Dispatch<SetStateAction<boolean>>
-    routePreference: string
-    setRoutePreference: Dispatch<SetStateAction<string>>
-    viaPlaceInput: string
-    setViaPlaceInput: Dispatch<SetStateAction<string>>
-    viaPlaceSuggestions: GeocodingResult[]
-    setViaPlaceSuggestions: Dispatch<SetStateAction<GeocodingResult[]>>
-    selectedViaPlace: GeocodingResult | null
-    setSelectedViaPlace: Dispatch<SetStateAction<GeocodingResult | null>>
-    viaPlaces: GeocodingResult[]
-    setViaPlaces: Dispatch<SetStateAction<GeocodingResult[]>>
-    handleViaPlaceChange: (value: string) => Promise<void>
-    addViaPlace: () => void
+    planner: ReturnType<typeof useRoutePlanner>
 }
 
-export default function RouteForm({ planner }: { planner: RouteFormProps }) {
+export default function RouteForm({ planner }: RouteFormProps) {
     const {
-        origin,
-        setOrigin,
-        destination,
-        setDestination,
+        originField,
+        destinationField,
+        swapLocations,
         message,
-        originSuggestions,
-        setOriginSuggestions,
-        destinationSuggestions,
-        setDestinationSuggestions,
         handleSubmit,
         routeDistance,
         routeDuration,
@@ -59,6 +29,7 @@ export default function RouteForm({ planner }: { planner: RouteFormProps }) {
         handleViaPlaceChange,
         addViaPlace,
     } = planner
+
     return (
         <form className="route-form" onSubmit={handleSubmit}>
             <div className="location-fields">
@@ -67,120 +38,28 @@ export default function RouteForm({ planner }: { planner: RouteFormProps }) {
                     className="swap-button"
                     aria-label="Swap starting point and destination"
                     title="Swap locations"
-                    onClick={() => {
-                        setOrigin(destination)
-                        setDestination(origin)
-                        setOriginSuggestions([])
-                        setDestinationSuggestions([])
-                    }}
+                    onClick={swapLocations}
                 >
                     ⇅
                 </button>
 
-                <div className="location-line">
-                    <span className="location-dot origin-dot" />
-                    <label htmlFor="origin">FROM</label>
-                </div>
-
-                <input
+                <LocationInput
                     id="origin"
-                    value={origin}
-                    onChange={async (event) => {
-                        const value = event.target.value
-                        setOrigin(value)
-                        setOriginSuggestions([])
-
-                        if (value.trim().length < 3) return
-
-                        try {
-                            const results = await suggestLocations(value.trim())
-                            setOriginSuggestions(results)
-                        } catch {
-                            setOriginSuggestions([])
-                        }
-                    }}
+                    label="FROM"
+                    dotClass="origin-dot"
                     placeholder="Starting location"
-                    autoComplete="off"
+                    field={originField}
                 />
-
-                {originSuggestions.length > 0 && (
-                    <div className="suggestions-list">
-                        {originSuggestions.map((place, index) => (
-                            <button
-                                key={`${place.lat}-${place.lon}-${index}`}
-                                type="button"
-                                className="suggestion-item"
-                                onClick={() => {
-                                    setOrigin(place.display_name)
-                                    setOriginSuggestions([])
-                                }}
-                            >
-                                {place.display_name}
-                            </button>
-                        ))}
-                    </div>
-                )}
 
                 <div className="connector" />
 
-                <button
-                    type="button"
-                    className="swap-button"
-                    aria-label="Swap starting point and destination"
-                    title="Swap locations"
-                    onClick={() => {
-                        setOrigin(destination)
-                        setDestination(origin)
-                        setOriginSuggestions([])
-                        setDestinationSuggestions([])
-                    }}
-                >
-                    ⇅
-                </button>
-
-                <div className="location-line">
-                    <span className="location-dot destination-dot" />
-                    <label htmlFor="destination">TO</label>
-                </div>
-
-                <input
+                <LocationInput
                     id="destination"
-                    value={destination}
-                    onChange={async (event) => {
-                        const value = event.target.value
-                        setDestination(value)
-                        setDestinationSuggestions([])
-
-                        if (value.trim().length < 3) return
-
-                        try {
-                            const results = await suggestLocations(value.trim())
-                            setDestinationSuggestions(results)
-                        } catch {
-                            setDestinationSuggestions([])
-                        }
-                    }}
+                    label="TO"
+                    dotClass="destination-dot"
                     placeholder="Where are you headed?"
-                    autoComplete="off"
+                    field={destinationField}
                 />
-
-                {destinationSuggestions.length > 0 && (
-                    <div className="suggestions-list">
-                        {destinationSuggestions.map((place, index) => (
-                            <button
-                                key={`${place.lat}-${place.lon}-${index}`}
-                                type="button"
-                                className="suggestion-item"
-                                onClick={() => {
-                                    setDestination(place.display_name)
-                                    setDestinationSuggestions([])
-                                }}
-                            >
-                                {place.display_name}
-                            </button>
-                        ))}
-                    </div>
-                )}
             </div>
 
             <button className="plan-button" type="submit">

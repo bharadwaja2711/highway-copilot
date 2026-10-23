@@ -1,18 +1,24 @@
 import { useState } from 'react'
-import {
-    geocodeLocation,
-    suggestLocations,
-    type GeocodingResult,
-} from '../services/geocoding'
+import { geocodeLocation, type GeocodingResult } from '../services/geocoding'
 import { getDrivingRoute } from '../services/routing'
+import {
+    useLocationAutocomplete,
+    type LocationAutocomplete,
+} from './useLocationAutocomplete'
+
+// Use the place the user picked from the dropdown; only geocode if they just typed text.
+async function resolvePlace(field: LocationAutocomplete): Promise<GeocodingResult | null> {
+    if (field.selected) return field.selected
+    const results = await geocodeLocation(field.value.trim())
+    return results[0] ?? null
+}
 
 export function useRoutePlanner() {
-    const [origin, setOrigin] = useState('')
-    const [destination, setDestination] = useState('')
-    const [message, setMessage] = useState('')
+    const originField = useLocationAutocomplete()
+    const destinationField = useLocationAutocomplete()
+    const via = useLocationAutocomplete()
 
-    const [originSuggestions, setOriginSuggestions] = useState<GeocodingResult[]>([])
-    const [destinationSuggestions, setDestinationSuggestions] = useState<GeocodingResult[]>([])
+    const [message, setMessage] = useState('')
 
     const [routeDistance, setRouteDistance] = useState<number | null>(null)
     const [routeDuration, setRouteDuration] = useState<number | null>(null)
@@ -21,43 +27,40 @@ export function useRoutePlanner() {
     const [showRoutePreferences, setShowRoutePreferences] = useState(false)
     const [routePreference, setRoutePreference] = useState('recommended')
 
-    const [viaPlaceInput, setViaPlaceInput] = useState('')
-    const [viaPlaceSuggestions, setViaPlaceSuggestions] = useState<GeocodingResult[]>([])
-    const [selectedViaPlace, setSelectedViaPlace] = useState<GeocodingResult | null>(null)
     const [viaPlaces, setViaPlaces] = useState<GeocodingResult[]>([])
+
+    function swapLocations() {
+        const fromValue = originField.value
+        const fromSelected = originField.selected
+        originField.replace(destinationField.value, destinationField.selected)
+        destinationField.replace(fromValue, fromSelected)
+    }
 
     async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
         event.preventDefault()
 
-        if (!origin.trim() || !destination.trim()) {
+        if (!originField.value.trim() || !destinationField.value.trim()) {
             setMessage('Enter both locations to continue.')
             return
         }
 
-        setMessage('Searching for your starting location...')
+        if (routePreference === 'via' && viaPlaces.length === 0) {
+            setMessage('Add at least one place for your via route.')
+            return
+        }
+
+        setMessage('Finding your locations...')
 
         try {
-            const originResults = await geocodeLocation(origin.trim())
-
-            if (originResults.length === 0) {
+            const start = await resolvePlace(originField)
+            if (!start) {
                 setMessage('Starting location not found. Try a more specific place.')
                 return
             }
 
-            setMessage('Starting location found. Searching for destination...')
-
-            const destinationResults = await geocodeLocation(destination.trim())
-
-            if (destinationResults.length === 0) {
+            const end = await resolvePlace(destinationField)
+            if (!end) {
                 setMessage('Destination not found. Try a more specific place.')
-                return
-            }
-
-            const start = originResults[0]
-            const end = destinationResults[0]
-
-            if (routePreference === 'via' && viaPlaces.length === 0) {
-                setMessage('Add at least one place for your via route.')
                 return
             }
 
@@ -72,7 +75,6 @@ export function useRoutePlanner() {
 
             setRouteDistance(route.distance / 1000)
             setRouteDuration(route.duration / 60)
-
             setRouteCoordinates(route.geometry.coordinates)
 
             setMessage(
@@ -87,51 +89,33 @@ export function useRoutePlanner() {
         }
     }
 
-    async function handleViaPlaceChange(value: string) {
-        setViaPlaceInput(value)
-        setSelectedViaPlace(null)
-        setViaPlaceSuggestions([])
-
-        if (value.trim().length < 3) return
-
-        try {
-            const results = await suggestLocations(value.trim())
-            setViaPlaceSuggestions(results)
-        } catch {
-            setViaPlaceSuggestions([])
-        }
-    }
-
     function addViaPlace() {
-        if (!selectedViaPlace) return
+        if (!via.selected) return
 
         const alreadyAdded = viaPlaces.some(
-            (place) =>
-                place.lat === selectedViaPlace.lat &&
-                place.lon === selectedViaPlace.lon,
+            (place) => place.lat === via.selected!.lat && place.lon === via.selected!.lon,
         )
 
         if (alreadyAdded) return
 
-        setViaPlaces([...viaPlaces, selectedViaPlace])
-        setViaPlaceInput('')
-        setViaPlaceSuggestions([])
-        setSelectedViaPlace(null)
+        setViaPlaces([...viaPlaces, via.selected])
+        via.replace('', null)
     }
 
     return {
-        origin, setOrigin,
-        destination, setDestination,
+        originField,
+        destinationField,
+        swapLocations,
         message,
-        originSuggestions, setOriginSuggestions,
-        destinationSuggestions, setDestinationSuggestions,
         routeDistance, routeDuration, routeCoordinates,
         showRoutePreferences, setShowRoutePreferences,
         routePreference, setRoutePreference,
-        viaPlaceInput, setViaPlaceInput,
-        viaPlaceSuggestions, setViaPlaceSuggestions,
-        selectedViaPlace, setSelectedViaPlace,
+        viaPlaceInput: via.value, setViaPlaceInput: via.setValue,
+        viaPlaceSuggestions: via.suggestions, setViaPlaceSuggestions: via.setSuggestions,
+        selectedViaPlace: via.selected, setSelectedViaPlace: via.setSelected,
         viaPlaces, setViaPlaces,
-        handleSubmit, handleViaPlaceChange, addViaPlace,
+        handleSubmit,
+        handleViaPlaceChange: via.handleChange,
+        addViaPlace,
     }
 }
