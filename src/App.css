@@ -632,3 +632,32 @@ body {
   width: 100%;
   height: 100%;
 }
+
+/* Please-read notice */
+.service-notice {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid #e8eae5;
+  border-radius: 8px;
+  background: #fafaf7;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #555c54;
+}
+
+.service-notice-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: #777f76;
+}
+
+.service-notice ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.service-notice li + li {
+  margin-top: 4px;
+}

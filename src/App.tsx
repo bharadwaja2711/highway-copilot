@@ -1,6 +1,7 @@
 import './App.css'
 import RouteMap from './components/RouteMap'
 import RouteForm from './components/RouteForm'
+import ServiceNotice from './components/ServiceNotice'
 import { useRoutePlanner } from './hooks/useRoutePlanner'
 
 function App() {
@@ -33,6 +34,8 @@ function App() {
                     </p>
 
                     <RouteForm planner={planner} />
+
+                    <ServiceNotice />
 
                     <div className="sidebar-divider" />
 

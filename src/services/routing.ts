@@ -46,6 +46,22 @@ function decodePolyline6(encoded: string): [number, number][] {
     return coordinates
 }
 
+export const MAX_TRIP_KM = 1500
+
+const LIMIT_MESSAGE =
+    'This trip is longer than the 1,500 km limit. Try a shorter journey, or split it into two trips.'
+
+// Valhalla measures the limit as the sum of straight-line distances between waypoints.
+function straightLineKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }) {
+    const toRad = (deg: number) => (deg * Math.PI) / 180
+    const dLat = toRad(b.lat - a.lat)
+    const dLon = toRad(b.lon - a.lon)
+    const h =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2
+    return 2 * 6371 * Math.asin(Math.sqrt(h))
+}
+
 export async function getDrivingRoute(
     start: GeocodingResult,
     end: GeocodingResult,
@@ -56,6 +72,14 @@ export async function getDrivingRoute(
         lat: Number(place.lat),
         lon: Number(place.lon),
     }))
+
+    let totalKm = 0
+    for (let i = 1; i < locations.length; i++) {
+        totalKm += straightLineKm(locations[i - 1], locations[i])
+    }
+    if (totalKm > MAX_TRIP_KM) {
+        throw new Error(LIMIT_MESSAGE)
+    }
 
     // Valhalla's auto costing options influence which roads the router prefers.
     // Scenic is an approximation that favors avoiding major highways and tolls;
@@ -91,6 +115,10 @@ export async function getDrivingRoute(
     })
 
     const data = await response.json()
+
+    if (data.error_code === 154 || /max distance/i.test(String(data.error ?? ''))) {
+        throw new Error(LIMIT_MESSAGE)
+    }
 
     if (!response.ok || data.error || !data.trip?.legs?.length) {
         throw new Error(
