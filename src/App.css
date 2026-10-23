@@ -625,3 +625,10 @@ body {
   opacity: 0.3;
   cursor: not-allowed;
 }
+/* Fix: maplibre-gl.css overrides .map-canvas positioning */
+.map-panel .map-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
