@@ -12,6 +12,7 @@ export default function RouteForm({ planner }: RouteFormProps) {
         originField,
         destinationField,
         swapLocations,
+        status,
         message,
         handleSubmit,
         routeDistance,
@@ -19,6 +20,8 @@ export default function RouteForm({ planner }: RouteFormProps) {
         showRoutePreferences,
         setShowRoutePreferences,
     } = planner
+
+    const isLoading = status === 'loading'
 
     return (
         <form className="route-form" onSubmit={handleSubmit}>
@@ -52,12 +55,22 @@ export default function RouteForm({ planner }: RouteFormProps) {
                 />
             </div>
 
-            <button className="plan-button" type="submit">
-                Plan journey <span>↗</span>
+            <button
+                className="plan-button"
+                type="submit"
+                disabled={isLoading}
+                aria-busy={isLoading}
+            >
+                {isLoading ? 'Planning…' : 'Plan journey'} <span>↗</span>
             </button>
 
-            {message && !message.startsWith('Route found!') && (
-                <p className="form-message" role="status">{message}</p>
+            {message && (status === 'loading' || status === 'error') && (
+                <p
+                    className="form-message"
+                    role={status === 'error' ? 'alert' : 'status'}
+                >
+                    {message}
+                </p>
             )}
 
             {routeDistance !== null && routeDuration !== null && (

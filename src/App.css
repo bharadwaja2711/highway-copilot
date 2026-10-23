@@ -661,3 +661,8 @@ body {
 .service-notice li + li {
   margin-top: 4px;
 }
+
+.plan-button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}

@@ -56,7 +56,17 @@ export default function RouteMap({ coordinates }: RouteMapProps) {
 
     useEffect(() => {
         const map = mapRef.current
-        if (!map || !coordinates || coordinates.length === 0) return
+        if (!map) return
+
+        if (!coordinates || coordinates.length === 0) {
+            try {
+                if (map.getLayer('driving-route-line')) map.removeLayer('driving-route-line')
+                if (map.getSource('driving-route')) map.removeSource('driving-route')
+            } catch {
+                // Style not ready yet, so there is nothing drawn to remove.
+            }
+            return
+        }
 
         const drawRoute = () => {
             if (mapRef.current !== map) return

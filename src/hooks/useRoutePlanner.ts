@@ -6,6 +6,8 @@ import {
     type LocationAutocomplete,
 } from './useLocationAutocomplete'
 
+export type RouteStatus = 'idle' | 'loading' | 'success' | 'error'
+
 // Use the place the user picked from the dropdown; only geocode if they just typed text.
 async function resolvePlace(field: LocationAutocomplete): Promise<GeocodingResult | null> {
     if (field.selected) return field.selected
@@ -18,6 +20,7 @@ export function useRoutePlanner() {
     const destinationField = useLocationAutocomplete()
     const via = useLocationAutocomplete()
 
+    const [status, setStatus] = useState<RouteStatus>('idle')
     const [message, setMessage] = useState('')
 
     const [routeDistance, setRouteDistance] = useState<number | null>(null)
@@ -36,31 +39,49 @@ export function useRoutePlanner() {
         destinationField.replace(fromValue, fromSelected)
     }
 
+    // Input problems: show a message but leave any existing route alone.
+    function reject(text: string) {
+        setStatus('error')
+        setMessage(text)
+    }
+
+    // Failed search: clear the old route, distance and time as well.
+    function fail(text: string) {
+        setRouteDistance(null)
+        setRouteDuration(null)
+        setRouteCoordinates(null)
+        setStatus('error')
+        setMessage(text)
+    }
+
     async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
         event.preventDefault()
 
+        if (status === 'loading') return
+
         if (!originField.value.trim() || !destinationField.value.trim()) {
-            setMessage('Enter both locations to continue.')
+            reject('Enter both locations to continue.')
             return
         }
 
         if (routePreference === 'via' && viaPlaces.length === 0) {
-            setMessage('Add at least one place for your via route.')
+            reject('Add at least one place for your via route.')
             return
         }
 
+        setStatus('loading')
         setMessage('Finding your locations...')
 
         try {
             const start = await resolvePlace(originField)
             if (!start) {
-                setMessage('Starting location not found. Try a more specific place.')
+                fail('Starting location not found. Try a more specific place.')
                 return
             }
 
             const end = await resolvePlace(destinationField)
             if (!end) {
-                setMessage('Destination not found. Try a more specific place.')
+                fail('Destination not found. Try a more specific place.')
                 return
             }
 
@@ -76,12 +97,10 @@ export function useRoutePlanner() {
             setRouteDistance(route.distance / 1000)
             setRouteDuration(route.duration / 60)
             setRouteCoordinates(route.geometry.coordinates)
-
-            setMessage(
-                `Route found! Distance: ${(route.distance / 1000).toFixed(1)} km · Estimated driving time: ${Math.round(route.duration / 60)} min`,
-            )
+            setStatus('success')
+            setMessage('')
         } catch (error) {
-            setMessage(
+            fail(
                 error instanceof Error
                     ? error.message
                     : 'Something went wrong. Check your internet connection and try again.',
@@ -106,6 +125,7 @@ export function useRoutePlanner() {
         originField,
         destinationField,
         swapLocations,
+        status,
         message,
         routeDistance, routeDuration, routeCoordinates,
         showRoutePreferences, setShowRoutePreferences,
