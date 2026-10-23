@@ -3,6 +3,7 @@ import * as maplibregl from 'maplibre-gl'
 import { setWorkerUrl } from 'maplibre-gl'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import { config } from '../config'
 
 setWorkerUrl(workerUrl)
 
@@ -26,9 +27,9 @@ export default function RouteMap({ coordinates }: RouteMapProps) {
                 sources: {
                     osm: {
                         type: 'raster',
-                        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                        tiles: [config.tileUrl],
                         tileSize: 256,
-                        attribution: '&copy; OpenStreetMap contributors',
+                        attribution: config.attribution,
                     },
                 },
                 layers: [
@@ -129,10 +130,6 @@ export default function RouteMap({ coordinates }: RouteMapProps) {
                 <span className="map-heading-title">Your journey, at a glance.</span>
             </div>
 
-            <div className="map-overlay map-scale">
-                <span className="scale-line" />
-                MAP DATA © OPENSTREETMAP
-            </div>
         </section>
     )
 }

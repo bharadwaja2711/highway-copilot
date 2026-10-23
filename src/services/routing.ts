@@ -1,4 +1,5 @@
 import type { GeocodingResult } from './geocoding'
+import { config } from '../config'
 
 type RouteResult = {
     distance: number
@@ -8,7 +9,7 @@ type RouteResult = {
     }
 }
 
-function decodePolyline6(encoded: string): [number, number][] {
+export function decodePolyline6(encoded: string): [number, number][] {
     const coordinates: [number, number][] = []
     let index = 0
     let latitude = 0
@@ -52,7 +53,7 @@ const LIMIT_MESSAGE =
     'This trip is longer than the 1,500 km limit. Try a shorter journey, or split it into two trips.'
 
 // Valhalla measures the limit as the sum of straight-line distances between waypoints.
-function straightLineKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }) {
+export function straightLineKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }) {
     const toRad = (deg: number) => (deg * Math.PI) / 180
     const dLat = toRad(b.lat - a.lat)
     const dLon = toRad(b.lon - a.lon)
@@ -105,7 +106,7 @@ export async function getDrivingRoute(
         shape_format: 'polyline6',
     }
 
-    const response = await fetch('https://valhalla1.openstreetmap.de/route', {
+    const response = await fetch(`${config.valhallaUrl}/route`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

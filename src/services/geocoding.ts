@@ -1,3 +1,5 @@
+import { config } from '../config'
+
 export type GeocodingResult = {
     lat: string
     lon: string
@@ -12,7 +14,7 @@ export async function geocodeLocation(place: string): Promise<GeocodingResult[]>
     })
 
     const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?${params}`,
+        `${config.nominatimUrl}/search?${params}`,
     )
 
     if (!response.ok) {
@@ -32,7 +34,7 @@ export async function suggestLocations(
     })
 
     const response = await fetch(
-        `https://photon.komoot.io/api/?${params}`,
+        `${config.photonUrl}/api/?${params}`,
         { signal },
     )
 
